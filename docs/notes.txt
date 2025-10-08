@@ -1,0 +1,23 @@
+################################################################################
+# QEMU
+################################################################################
+
+# QEMU doesn't emulates RPI3 boot Stage 1 where overlays are load using
+# dtoverlay in /boot/config.txt. Instead merge DTB files into one and pass it
+# to QEMU when starting the VM.
+fdtoverlay -o <merged DTB> -i <source DTB> <DTBO>
+
+# Additionally, overlays can be added with dtoverlay command.
+# Place the DTBO file under /boot/overlays and run the following commnand
+dtoverlay <DTBO file name without file extension>
+
+# Validate the overlay was loaded in /sys/firmware/devicetree/base
+
+################################################################################
+# RBP -Kernel image
+################################################################################
+
+# Pull Linaro's GNU toolchain from oficial web page to get the most compatible
+# version for the RPI image.
+# https://www.linaro.org/downloads/
+

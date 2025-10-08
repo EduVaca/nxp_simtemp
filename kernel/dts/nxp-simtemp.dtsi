@@ -1,0 +1,19 @@
+// Enable the simulated temperature sensor
+// https://www.kernel.org/doc/Documentation/devicetree/overlay-notes.txt
+/dts-v1/;
+/plugin/;
+
+/ {
+    fragment@0 { /* first child node */
+        target-path = "/"; /* target path to root */
+        __overlay__ {
+            simtemp: simtemp {
+                compatible = "nxp,simtemp";
+                sampling-ms = <100>;
+                threshold-mC = <45000>;
+                status = "okay";
+            };
+        };
+    };
+};
+
