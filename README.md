@@ -17,10 +17,62 @@ This project demonstrates a simulated temperature sensor device driver for embed
     sudo apt-get update
     sudo apt-get install git build-essential fakeroot libncurses-dev libssl-dev ccache bison flex libelf-dev dwarves device-tree-compiler
     ```
+
 -   **QEMU (for testing)**:
 
     ```sh
     sudo apt-get install qemu-system-aarch64 qemu-efi-aarch64
+    ```
+
+-   **Kernel headers for RBP image (QEMU ARM64)**:
+
+    **TODO**: Automate Kernel headers setup to start building the KMD
+
+    Get Linaro GCC binaries for cross compilation
+
+    ```sh
+    cd /tmp
+
+    # Get nearest GCC binaries used to build raspios_arm64-2020-05-28
+    wget https://releases.linaro.org/components/toolchain/binaries/latest-5/aarch64-linux-gnu/gcc-linaro-5.5.0-2017.10-x86_64_aarch64-linux-gnu.tar.xz
+    unxz gcc-linaro-5.5.0-2017.10-x86_64_aarch64-linux-gnu.tar.xz
+
+    # Install Linaro 5
+    sudo mkdir /usr/src/linaro-5
+    sudo tar -xf gcc-linaro-5.5.0-2017.10-x86_64_aarch64-linux-gnu.tar -C /usr/src/linaro-5 --strip-components=1
+    ```
+
+    Get RBPI Linux headers
+
+    ```sh
+    cd /tmp
+
+    # Get a stable RASPI-OS
+    wget https://downloads.raspberrypi.com/raspios_arm64/images/raspios_arm64-2020-05-28/2020-05-27-raspios-buster-arm64.info
+
+    # Grab the Kernel git hash used to build the kernel image, i.e., Kernel: https://github.com/raspberrypi/linux/tree/971a2bb14b459819db1bda8fcdf953e493242b42
+    GIT_RBPI_HASH=$(cat 2020-05-27-raspios-buster-arm64.info | grep -oP 'Kernel:.*/tree/\K[0-9a-f]+')
+
+    # Setup linux source code location
+    sudo mkdir /usr/src/linux-5.4.42-v8+
+    sudo chown --reference=${HOME} --recursive /usr/src/linux-5.4.42-v8+
+    cd /usr/src/linux-5.4.42-v8+
+
+    # Pull source code
+    git init
+    git remote add origin https://github.com/raspberrypi/linux
+    git fetch --depth 1 origin ${GIT_RBPI_HASH}
+    git checkout FETCH_HEAD
+
+    # Set cross compilation
+    export ARCH=arm64
+    export CROSS_COMPILE=/usr/src/linaro-5/bin/aarch64-linux-gnu-
+
+    # Configure the kernel for a RBPI target
+    make -j$(nproc) bcmrpi3_defconfig
+
+    # Rebuild external symbols
+    make -j$(nproc) modules
     ```
 
 ## Setup and Installation
@@ -112,4 +164,37 @@ Valdiate the folder `simtemp` is created under `/sys/firmware/devicetree/base`
 
     ```sh
     ls -l /sys/firmware/devicetree/base/simtemp
+    ```
+
+### 2. Validate KMD in QEMU ARM64
+
+-   **Copy `nxp-simtemp.ko` to QEMU VM**:
+
+    ```sh
+    scp -P 5022 nxp-simtemp.ko pi@localhost:/tmp/
+    ```
+
+-   **Load the module using `insmod`**:
+
+    ```sh
+    # Double check the module has the correct fields
+    modinfo nxp-simtemp.ko
+    # Insert the module
+    sudo insmod nxp-simtemp.ko
+    ```
+
+-   **Validate the module was loaded**:
+
+    ```sh
+    lsmod | grep nxp-simtemp
+    # Look for simtemp samples
+    sudo journalctl -b
+    ```
+
+-   **Unload the module**:
+
+    ```sh
+    rmmod nxp-simtemp
+    # Validate it's no longer available
+    lsmod | grep nxp-simtemp
     ```
