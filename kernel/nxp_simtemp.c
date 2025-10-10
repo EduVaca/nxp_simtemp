@@ -1,12 +1,20 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/miscdevice.h>
+#include <linux/fs.h>
+#include <linux/sysfs.h>
+#include <linux/kobject.h>
+#include <linux/kfifo.h>
+#include <linux/poll.h>
+#include <linux/wait.h>
+#include <linux/uaccess.h>
+#include <linux/jiffies.h>
 #include <linux/of.h>               // For of_device_id and Device Tree support
 #include <linux/slab.h>             // For kzalloc()
 #include <linux/workqueue.h>        // For workqueue functions
 #include <linux/timekeeping.h>      // For ktime_get_ns()
 #include <linux/random.h>           // For get_random_u32()
-
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
 
@@ -14,98 +22,387 @@
 #include "nxp_simtemp.h"
 
 /* Use a standard major.minor.patch versioning scheme */
-#define DRIVER_VERSION "1.1.0"
+#define DRIVER_VERSION "1.2.0"
+
+/* Device specific parameters */
+#define DRIVER_NAME "simtemp"
+
+/* Device structure holding device state */
+static struct simtemp_dev *simtemp_data;
+
+/* --- Sysfs Attributes --- */
+static ssize_t sampling_ms_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct simtemp_dev *sdev = dev->driver_data;
+    unsigned long flags;
+    u32 sampling_ms;
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    sampling_ms = sdev->sampling_ms;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+    
+    return scnprintf(buf, PAGE_SIZE, "%u\n", sampling_ms);
+}
+
+static ssize_t sampling_ms_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct simtemp_dev *sdev = dev->driver_data;
+    u32 val;
+    int err;
+    unsigned long flags;
+
+    err = kstrtou32(buf, 10, &val);
+    if (err) {
+        return err;
+    }
+    if (val < MIN_SAMPLE_MS) { // Minimum 10ms for stability
+        return -EINVAL;
+    }
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    sdev->sampling_ms = val;
+    hrtimer_cancel(&sdev->temp_hrtimer);
+    hrtimer_start(&sdev->temp_hrtimer, ms_to_ktime(sdev->sampling_ms), HRTIMER_MODE_REL);
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+
+    return count;
+}
+static DEVICE_ATTR_RW(sampling_ms);
+
+static ssize_t threshold_mC_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct simtemp_dev *sdev = dev->driver_data;
+    u32 threshold_mC;
+    unsigned long flags;
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    threshold_mC = sdev->threshold_mC;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+
+    return scnprintf(buf, PAGE_SIZE, "%u\n", threshold_mC);
+}
+
+static ssize_t threshold_mC_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct simtemp_dev *sdev = dev->driver_data;
+    u32 val;
+    int err;
+    unsigned long flags;
+
+    err = kstrtos32(buf, 10, &val);
+    if (err) {
+        return err;
+    }
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    sdev->threshold_mC = val;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+
+    return count;
+}
+static DEVICE_ATTR_RW(threshold_mC);
+
+static ssize_t mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    return scnprintf(buf, PAGE_SIZE, "normal\n");
+}
+
+static ssize_t mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    return count;
+}
+static DEVICE_ATTR_RW(mode);
+
+static ssize_t stats_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct simtemp_dev *sdev = dev->driver_data;
+    u64 samples_taken, threshold_alerts;
+    unsigned long flags;
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    samples_taken = sdev->samples_taken;
+    threshold_alerts = sdev->threshold_alerts;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+
+    return scnprintf(buf, PAGE_SIZE, "samples_taken: %llu\nthreshold_alerts: %llu\n",
+                    samples_taken, threshold_alerts);
+}
+static DEVICE_ATTR_RO(stats);
+
+static struct attribute *simtemp_attrs[] = {
+    &dev_attr_sampling_ms.attr,
+    &dev_attr_threshold_mC.attr,
+    &dev_attr_mode.attr,
+    &dev_attr_stats.attr,
+    NULL,
+};
+
+static const struct attribute_group simtemp_group = {
+    .attrs = simtemp_attrs,
+};
+
+/* --- Char Device File Operations --- */
+static int simtemp_open(struct inode *inode, struct file *file) {
+    file->private_data = simtemp_data;
+    dev_info(simtemp_data->dev, "Device opened.\n");
+    return 0;
+}
+
+static int simtemp_release(struct inode *inode, struct file *file) {
+    struct simtemp_dev *sdev = file->private_data;
+    dev_info(sdev->dev, "Device released.\n");
+    return 0;
+}
+
+static ssize_t simtemp_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
+    struct simtemp_dev *sdev = file->private_data;
+    struct simtemp_sample sample;
+    int ret;
+    int copied;
+    unsigned long flags;
+
+
+    if (count < sizeof(sample)) {
+        return -EINVAL;
+    }
+
+    if (kfifo_is_empty(&sdev->kfifo)) {
+        if (file->f_flags & O_NONBLOCK) {
+            return -EAGAIN;
+        }
+
+        // Wait for data with exclusive wake-up
+        ret = wait_event_interruptible_exclusive(sdev->read_wait, kfifo_is_empty(&sdev->kfifo) == 0);
+        if (ret) {
+            return ret; // Signal received
+        }
+    }
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    ret = kfifo_get(&sdev->kfifo, &sample);
+    // Clean NEW_SAMPLE when no more data in the FIFO
+    if (kfifo_is_empty(&sdev->kfifo)) {
+        sdev->current_flags &= ~NEW_SAMPLE;
+    }
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+    if (ret == 0) { // Should not happen if wait_event worked
+        return -EAGAIN;
+    }
+
+    copied = min_t(size_t, count, sizeof(sample));
+    if (copy_to_user(buf, &sample, copied)) {
+        return -EFAULT;
+    }
+
+    return copied;
+}
+
+static __poll_t simtemp_poll(struct file *file, struct poll_table_struct *wait) {
+    __poll_t mask = 0;
+    struct simtemp_dev *sdev = file->private_data;
+    unsigned long flags;
+
+    poll_wait(file, &sdev->poll_wait, wait);
+
+    // START CRITICAL BLOCK
+    spin_lock_irqsave(&sdev->lock, flags);
+    if (!kfifo_is_empty(&sdev->kfifo)) {
+        mask |= POLLIN | POLLRDNORM;
+    } else {
+        sdev->current_flags &= ~NEW_SAMPLE;
+    }
+    if (sdev->current_flags & THRESHOLD_CROSSED) {
+        mask |= POLLPRI;
+    }
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    // END CRITICAL BLOCK
+
+    return mask;
+}
+
+static const struct file_operations simtemp_fops = {
+    .owner   = THIS_MODULE,
+    .open    = simtemp_open,
+    .release = simtemp_release,
+    .read    = simtemp_read,
+    .poll    = simtemp_poll,
+};
+
+static struct miscdevice misc_simtemp_dev = {
+    .minor      = TEMP_MINOR,
+    .name       = DRIVER_NAME,
+    .fops       = &simtemp_fops,
+};
+
+/*
+ * Get a random value as the current temperature
+ */
+static u32 get_temperature (struct simtemp_dev *sdev) {
+    u32 rand_val, temp;
+
+    // Generate a new simulated temperature value
+    rand_val = get_random_u32();
+    temp = rand_val % sdev->threshold_mC;
+
+    // Simulate a threshold crossed read every 10 samples
+    if (++sdev->counter > MAX_COUNT) {
+        sdev->counter = 0;
+        temp = sdev->threshold_mC + 1;
+    }
+
+    return temp;
+}
 
 /*
  * The high-resolution timer function that will be executed periodically.
  */
-static enum hrtimer_restart my_hrtimer_callback(struct hrtimer *timer) {
-    struct simtemp_data *data = container_of(timer, struct simtemp_data, temp_hrtimer);
-    u32 rand_val;
-    s32 temp;
+static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
+    struct simtemp_dev *sdev = container_of(timer, struct simtemp_dev, temp_hrtimer);
+    struct simtemp_sample sample;
+    u16 old_flags;
     unsigned long flags;
 
-    // Generate a new simulated temperature value
-    rand_val = get_random_u32();
-    temp = rand_val % data->threshold_mC;
-
     // START CRITICAL BLOCK
-    spin_lock_irqsave(&data->lock, flags);
+    spin_lock_irqsave(&sdev->lock, flags);
 
-    data->latest_sample.timestamp_ns = ktime_get_ns();
-    // Simulate a threshold crossed read every 10 samples
-    if (++data->counter > MAX_COUNT) {
-        data->counter = 0;
-        temp = data->threshold_mC + 1;
+    old_flags = sdev->current_flags;
+
+    // Update global fields
+    sdev->current_temp = get_temperature(sdev);
+    sdev->current_flags |= NEW_SAMPLE;
+
+    // Update FIFO
+    sample.timestamp_ns = ktime_get_ns();
+    sample.temp_mC = sdev->current_temp;
+    sample.flags = sdev->current_flags;
+
+    if (kfifo_put(&sdev->kfifo, sample)) {
+        sdev->samples_taken++;
+        // Wake up ONE blocking reader
+        wake_up_interruptible(&sdev->read_wait);
+        // Wake up pollers for new data
+        wake_up_interruptible_poll(&sdev->poll_wait, POLLIN);
+    } else {
+        dev_warn(sdev->dev, "kfifo is full, dropping sample\n");
     }
-    data->latest_sample.temp_mC = temp;
-    data->latest_sample.flags = NEW_SAMPLE;
 
-    if (temp >= data->threshold_mC) {
-        data->latest_sample.flags |= THRESHOLD_CROSSED;
-        dev_info(data->dev, "Threshold crossed! temp=%d mC, threshold=%llu mC\n",
-                 temp, data->threshold_mC);
+    if (sdev->current_temp >= sdev->threshold_mC) {
+        sdev->current_flags |= THRESHOLD_CROSSED;
+        dev_info(sdev->dev, "Threshold crossed! temp=%u mC, threshold=%u mC\n",
+                 sdev->current_temp, sdev->threshold_mC);
+
+        // Only alert at the first cross
+        if ((old_flags & THRESHOLD_CROSSED) == 0) {
+            sdev->threshold_alerts++;
+            // Wake up pollers for urgent data (threshold crossing)
+            wake_up_interruptible_poll(&sdev->poll_wait, POLLPRI);
+        }
+    } else { // Clean the flag
+        sdev->current_flags &= ~THRESHOLD_CROSSED;
     }
 
-    spin_unlock_irqrestore(&data->lock, flags);
+    dev_dbg(sdev->dev, "New sample recorded: %u mC at %llu ns\n",
+            sample.temp_mC, sample.timestamp_ns);
+
+    spin_unlock_irqrestore(&sdev->lock, flags);
     // END CRITICAL BLOCK
 
-    dev_dbg(data->dev, "New sample recorded: %d mC at %llu ns\n",
-            temp, data->latest_sample.timestamp_ns);
-
     // Restart the timer
-    hrtimer_forward_now(timer, ms_to_ktime(data->sampling_ms)); // Use hrtimer_forward_now to restart
-
+    hrtimer_forward_now(timer, ms_to_ktime(sdev->sampling_ms)); // Use hrtimer_forward_now to restart
     return HRTIMER_RESTART;
 }
 
+/* --- Platform Driver Core --- */
 static int simtemp_probe(struct platform_device *pdev)
 {
     struct device *dev = &pdev->dev;
-    struct simtemp_data *data;
     int ret;
 
     dev_info(dev, "Probing for simtemp device...\n");
 
-    data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-    if (!data) {
+    simtemp_data = devm_kzalloc(dev, sizeof(*simtemp_data), GFP_KERNEL);
+    if (!simtemp_data) {
         return -ENOMEM;
     }
-    platform_set_drvdata(pdev, data);
+
+    // Link the data to the device so it gets remove automatically
+    // when the devie is remove.
+    platform_set_drvdata(pdev, simtemp_data);
 
     /* Read the 'sampling-ms' property from the device tree. */
-    ret = of_property_read_u32(pdev->dev.of_node, "sampling-ms", &data->sampling_ms);
+    ret = of_property_read_u32(pdev->dev.of_node, "sampling-ms", &simtemp_data->sampling_ms);
     if (ret) {
         dev_err(dev, "Failed to read 'sampling-ms' property\n");
         return ret;
     }
 
     /* Read the 'threshold-mC' property from the device tree. */
-    ret = of_property_read_u64(pdev->dev.of_node, "threshold-mC", &data->threshold_mC);
+    ret = of_property_read_u32(pdev->dev.of_node, "threshold-mC", &simtemp_data->threshold_mC);
     if (ret) {
         dev_err(dev, "Failed to read 'threshold-mC' property\n");
         return ret;
     }
 
-    dev_info(dev, "Device parameters: sampling-ms=%u, threshold-mC=%llu\n",
-             data->sampling_ms, data->threshold_mC);
+    dev_info(dev, "Device parameters: sampling-ms=%u, threshold-mC=%u\n",
+             simtemp_data->sampling_ms, simtemp_data->threshold_mC);
+
+    // Generate a new simulated temperature value
+    simtemp_data->current_temp = get_temperature(simtemp_data);
+
+    // Initialize wait queues for read/epoll/select operations
+    init_waitqueue_head(&simtemp_data->read_wait);
+    init_waitqueue_head(&simtemp_data->poll_wait);
 
     // Initialize spinlock for protecting the sample data
-    spin_lock_init(&data->lock);
+    spin_lock_init(&simtemp_data->lock);
+
+    // Allocates and initializes dynamically.
+    INIT_KFIFO(simtemp_data->kfifo);
 
     // Initialize a high-resolution timer for simulated samples
-    hrtimer_init(&data->temp_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL); // Initialize
+    hrtimer_init(&simtemp_data->temp_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL); // Initialize
 
     // Set the callback function
-    data->temp_hrtimer.function = &my_hrtimer_callback;
-
-    // Start the timer
-    hrtimer_start(&data->temp_hrtimer, ms_to_ktime(data->sampling_ms), HRTIMER_MODE_REL);
+    simtemp_data->temp_hrtimer.function = &simtemp_hrtimer_callback;
 
     // Save a reference to the device
-    data->dev = dev;
+    simtemp_data->dev = dev;
+
+    // Start the timer
+    hrtimer_start(&simtemp_data->temp_hrtimer, ms_to_ktime(simtemp_data->sampling_ms), HRTIMER_MODE_REL);
+
+    ret = misc_register(&misc_simtemp_dev);
+    if (ret) {
+        dev_err(dev, "Failed to register miscdevice.\n");
+        hrtimer_cancel(&simtemp_data->temp_hrtimer);
+        return ret;
+    }
+    simtemp_data->miscdev = &misc_simtemp_dev;
+
+    ret = sysfs_create_group(&pdev->dev.kobj, &simtemp_group);
+    if (ret) {
+        dev_err(dev, "Failed to create sysfs attributes.\n");
+        misc_deregister(simtemp_data->miscdev);
+        hrtimer_cancel(&simtemp_data->temp_hrtimer);
+        return ret;
+    }
+
     dev_info(dev, "Found device '%s'\n", pdev->name);
-    dev_info(dev, "Read properties: sampling-ms=%u, threshold-mC=%llu\n", data->sampling_ms, data->threshold_mC);
+    dev_info(dev, "Device registered as /dev/%s\n", pdev->name);
+    dev_info(dev, "Read properties: sampling-ms=%u, threshold-mC=%u\n",
+        simtemp_data->sampling_ms, simtemp_data->threshold_mC);
     dev_info(dev, "Device successfully probed!\n");
 
     return 0;
@@ -113,11 +410,18 @@ static int simtemp_probe(struct platform_device *pdev)
 
 static int simtemp_remove(struct platform_device *pdev)
 {
-    struct simtemp_data *data = platform_get_drvdata(pdev);
-    dev_info(&pdev->dev, "Removing simtemp device.\n");
+    struct simtemp_dev *sdev;
+    sdev = platform_get_drvdata(pdev);
+    dev_info(sdev->dev, "Removing simtemp device.\n");
+
+    // Remove the corresponding sysfs entries
+    sysfs_remove_group(&pdev->dev.kobj, &simtemp_group);
+
+    // De-register the device and free its spot
+    misc_deregister(&misc_simtemp_dev);
 
     // Stop the high-resolution timer before exiting
-    hrtimer_cancel(&data->temp_hrtimer);
+    hrtimer_cancel(&sdev->temp_hrtimer);
     return 0;
 }
 
@@ -133,7 +437,7 @@ static struct platform_driver simtemp_driver = {
     .probe  = simtemp_probe,
     .remove = simtemp_remove,
     .driver = {
-        .name           = "simtemp",
+        .name           = DRIVER_NAME,
         .of_match_table = simtemp_of_match,
     },
 };
@@ -142,6 +446,6 @@ static struct platform_driver simtemp_driver = {
 module_platform_driver(simtemp_driver);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Eduardo Vaca");
+MODULE_AUTHOR("Eduardo Vaca <edu.daniel.vs@gmail.com>");
 MODULE_DESCRIPTION("A dummy platform driver for an NXP simuldated temperature device.");
 MODULE_VERSION(DRIVER_VERSION);
