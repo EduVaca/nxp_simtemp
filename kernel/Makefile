@@ -1,14 +1,23 @@
-# TODO: Since the compilation is intended for cross-platform support on ARM,
-#       KROOT is going to be a different kernel version than the one
-#       in the build machine.
-#KROOT := /lib/modules/$(shell uname -r)/build
-KROOT := /usr/src/linux-5.4.42-v8+
+
 SRC := $(shell pwd)
+BUILD_DIR := $(SRC)/../build
 EXTRA_CFLAGS := -Wall -Wstrict-prototypes -Wmissing-prototypes
 INST_DIR := extra
-INST_PATH := $(SRC)/../build
+GCC := $(CROSS_COMPILE)gcc
 
-all: modules
+ifneq ($(CROSS_COMPILE),)
+	KROOT := /usr/src/linux-5.4.42-v8+
+	INST_PATH := $(SRC)/../build
+	EXTRA_CFLAGS += -DRBPITGT
+else
+	KROOT := /lib/modules/$(shell uname -r)/build
+endif
+
+
+all: modules test
+
+test:
+	$(GCC) $(EXTRA_CFLAGS) -o $(BUILD_DIR)/nxp_simtemp_test nxp_simtemp_test.c
 
 modules:
 	@$(MAKE) -C $(KROOT) M=$(SRC) modules
@@ -20,4 +29,4 @@ kernel_clean:
 	@$(MAKE) INSTALL_MOD_PATH=$(INST_PATH) INSTALL_MOD_DIR=$(INST_DIR) MOD_DIR=$(INST_DIR) -C $(KROOT) M=$(SRC) clean
 
 clean: kernel_clean
-	rm -rf Module.symvers modules.order
+	rm -rf Module.symvers modules.order $(BUILD_DIR)/nxp_simtemp_test

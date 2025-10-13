@@ -191,10 +191,6 @@ static ssize_t simtemp_read(struct file *file, char __user *buf, size_t count, l
     // START CRITICAL BLOCK
     spin_lock_irqsave(&sdev->lock, flags);
     ret = kfifo_get(&sdev->kfifo, &sample);
-    // Clean NEW_SAMPLE when no more data in the FIFO
-    if (kfifo_is_empty(&sdev->kfifo)) {
-        sdev->current_flags &= ~NEW_SAMPLE;
-    }
     spin_unlock_irqrestore(&sdev->lock, flags);
     // END CRITICAL BLOCK
     if (ret == 0) { // Should not happen if wait_event worked
@@ -220,8 +216,6 @@ static __poll_t simtemp_poll(struct file *file, struct poll_table_struct *wait) 
     spin_lock_irqsave(&sdev->lock, flags);
     if (!kfifo_is_empty(&sdev->kfifo)) {
         mask |= POLLIN | POLLRDNORM;
-    } else {
-        sdev->current_flags &= ~NEW_SAMPLE;
     }
     if (sdev->current_flags & THRESHOLD_CROSSED) {
         mask |= POLLPRI;
@@ -271,8 +265,10 @@ static u32 get_temperature (struct simtemp_dev *sdev) {
 static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     struct simtemp_dev *sdev = container_of(timer, struct simtemp_dev, temp_hrtimer);
     struct simtemp_sample sample;
+    __poll_t mask = 0;
     u16 old_flags;
     unsigned long flags;
+
 
     // START CRITICAL BLOCK
     spin_lock_irqsave(&sdev->lock, flags);
@@ -286,17 +282,6 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     // Update FIFO
     sample.timestamp_ns = ktime_get_ns();
     sample.temp_mC = sdev->current_temp;
-    sample.flags = sdev->current_flags;
-
-    if (kfifo_put(&sdev->kfifo, sample)) {
-        sdev->samples_taken++;
-        // Wake up ONE blocking reader
-        wake_up_interruptible(&sdev->read_wait);
-        // Wake up pollers for new data
-        wake_up_interruptible_poll(&sdev->poll_wait, POLLIN);
-    } else {
-        dev_warn(sdev->dev, "kfifo is full, dropping sample\n");
-    }
 
     if (sdev->current_temp >= sdev->threshold_mC) {
         sdev->current_flags |= THRESHOLD_CROSSED;
@@ -307,14 +292,30 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
         if ((old_flags & THRESHOLD_CROSSED) == 0) {
             sdev->threshold_alerts++;
             // Wake up pollers for urgent data (threshold crossing)
-            wake_up_interruptible_poll(&sdev->poll_wait, POLLPRI);
+            mask |= POLLPRI;
         }
     } else { // Clean the flag
         sdev->current_flags &= ~THRESHOLD_CROSSED;
     }
 
-    dev_dbg(sdev->dev, "New sample recorded: %u mC at %llu ns\n",
-            sample.temp_mC, sample.timestamp_ns);
+    sample.flags = sdev->current_flags;
+
+    if (kfifo_put(&sdev->kfifo, sample)) {
+        sdev->samples_taken++;
+        // Wake up ONE blocking reader
+        wake_up_interruptible(&sdev->read_wait);
+        // Wake up pollers for new data
+        mask |= POLLIN;
+    } else {
+        dev_warn(sdev->dev, "kfifo is full, dropping sample\n");
+    }
+
+    if ((mask & (POLLIN | POLLPRI)) > 0) {
+        wake_up_interruptible_poll(&sdev->poll_wait, mask);
+    }
+
+    dev_info(sdev->dev, "New sample recorded: %u mC at %llu ns, flags=0x%02x\n",
+            sample.temp_mC, sample.timestamp_ns, sample.flags);
 
     spin_unlock_irqrestore(&sdev->lock, flags);
     // END CRITICAL BLOCK
@@ -408,7 +409,11 @@ static int simtemp_probe(struct platform_device *pdev)
     return 0;
 }
 
+#if defined(RBPITGT)
 static int simtemp_remove(struct platform_device *pdev)
+#else
+static void simtemp_remove(struct platform_device *pdev)
+#endif
 {
     struct simtemp_dev *sdev;
     sdev = platform_get_drvdata(pdev);
@@ -422,7 +427,10 @@ static int simtemp_remove(struct platform_device *pdev)
 
     // Stop the high-resolution timer before exiting
     hrtimer_cancel(&sdev->temp_hrtimer);
+
+#if defined(RBPITGT)
     return 0;
+#endif
 }
 
 /* Match the device tree compatible string to this driver. */
