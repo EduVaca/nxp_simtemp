@@ -33,8 +33,27 @@
 /* NXP defined structs */
 #include "nxp_simtemp.h"
 
-/* Use a standard major.minor.patch versioning scheme */
-#define DRIVER_VERSION "1.3.0"
+/**
+ * @note **Version History:**
+ *
+ * -----------------------------------------------------------------------------
+ * ## - 2025-10-14 - 0.1.1
+ * ### Fixed
+ * - Take nanoseconds from ktime_get_real_ns to convert it to UTC in user-space
+ *   application.
+ *
+ * -----------------------------------------------------------------------------
+ * ## - 2025-10-14 - 0.1.0
+ * ### Pre-Initial Release
+ * - Kernel mode driver binds to "simtemp" device.
+ * - Register a misc device with fs attributes and char device with file ops
+ * - Simulate temperature samples using a High-Resolution timer.
+ * - Store samples and metada in a KFIFO
+ * - Add platform device if binding to DTB fails.
+ *
+ * -----------------------------------------------------------------------------
+ */
+#define DRIVER_VERSION "0.1.1"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
@@ -305,8 +324,8 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     sdev->current_temp = get_temperature(sdev);
     sdev->current_flags |= NEW_SAMPLE;
 
-    /* Update FIFO */
-    sample.timestamp_ns = ktime_get_ns();
+    /* Get the current real time in nanoseconds since the Unix epoch */
+    sample.timestamp_ns = ktime_get_real_ns();
     sample.temp_mC = sdev->current_temp;
 
     if (sdev->current_temp >= sdev->threshold_mC) {
@@ -326,6 +345,7 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
 
     sample.flags = sdev->current_flags;
 
+    /* Update FIFO */
     if (kfifo_put(&sdev->kfifo, sample)) {
         sdev->samples_taken++;
         /* Wake up ONE blocking reader */
