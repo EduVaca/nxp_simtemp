@@ -19,29 +19,44 @@
 #include <poll.h>
 
 /* NXP defined structs */
+#include "nxp_simtemp.h"
 #include "nxp_simtemp_test.h"
 
-#define DEVICE_FILE "/dev/simtemp"
-#define DEVICE_PATH "/sys/devices/platform/simtemp"
-
+/**
+ * @brief Convert nanoseconds to time in iso8601 format.
+ * @param ns Time in nanoseconds.
+ * @param buffer Buffer to hold the formated time
+ * @param size Size of buffer
+ */
 void ns_to_iso8601(long long ns, char* buffer, size_t size) {
     time_t sec = ns / 1000000000;
     long long nanosec = ns % 1000000000;
     struct tm *tm_info = gmtime(&sec);
 
     strftime(buffer, size, "%Y-%m-%dT%H:%M:%S", tm_info);
-    snprintf(buffer + strlen(buffer), size - strlen(buffer), ".%03uZ", (unsigned int)(nanosec / 1000000));
+    snprintf(buffer + strlen(buffer), size - strlen(buffer), ".%03uZ",
+        (unsigned int)(nanosec / 1000000));
 }
 
+/**
+ * @brief Print's program user help.
+ * @param prog_name Program name.
+ */
 void print_help(char *prog_name) {
     fprintf(stderr, "Usage: %s [options]\n", prog_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -s <ms>           Set sampling period via sysfs.\n");
     fprintf(stderr, "  -t <mC>           Set threshold via sysfs.\n");
-    fprintf(stderr, "  -p                Run in poll loop, printing samples and alerts.\n");
+    fprintf(stderr, "  -p                Run in poll loop, printing samples and"
+                                         " alerts.\n");
     exit(EXIT_FAILURE);
 }
 
+/**
+ * @brief Entry point
+ * @param argc Parameters counter.
+ * @param argv Parameters values.
+ */
 int main(int argc, char *argv[]) {
     int fd;
     char path[256];
@@ -104,11 +119,15 @@ int main(int argc, char *argv[]) {
 
             if ((pfd.revents & (POLLIN | POLLPRI)) > 0) {
                 if (read(fd, &sample, sizeof(sample)) == sizeof(sample)) {
-                    ns_to_iso8601(sample.timestamp_ns, timestamp_str, sizeof(timestamp_str));
-                    if (pfd.revents & POLLPRI && sample.flags & THRESHOLD_CROSSED) {
-                        printf("%s temp=%.3fC alert=1 (Threshold crossed)\n", timestamp_str, (float)sample.temp_mC / 1000.0);
+                    ns_to_iso8601(sample.timestamp_ns, timestamp_str,
+                        sizeof(timestamp_str));
+                    if (pfd.revents & POLLPRI &&
+                        sample.flags & THRESHOLD_CROSSED) {
+                        printf("%s temp=%.3fC alert=1 (Threshold crossed)\n",
+                            timestamp_str, (float)sample.temp_mC / 1000.0);
                     } else {
-                        printf("%s temp=%.3fC alert=0\n", timestamp_str, (float)sample.temp_mC / 1000.0);
+                        printf("%s temp=%.3fC alert=0\n",
+                            timestamp_str, (float)sample.temp_mC / 1000.0);
                     }
                 }
             }
