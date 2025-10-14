@@ -1,3 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * nxp_simtemp_test.c - Source code for user space testing application to
+ *                      validate a kernel mode driver simulating a temperature
+*                       sensor.
+ *
+ * Copyright (c) 2025 Eduardo Vaca <edu.daniel.vs@gmail.com>
+ *
+ * See README.md for more information.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

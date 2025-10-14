@@ -1,3 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * nxp_simtemp.c - Source code for a kernel mode driver simulating a
+ *                 temperature sensor.
+ *
+ * Copyright (c) 2025 Eduardo Vaca <edu.daniel.vs@gmail.com>
+ *
+ * See README.md for more information.
+ */
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
