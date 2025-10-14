@@ -18,6 +18,9 @@ struct simtemp_sample {
 #define MAX_COUNT      10     // Samples before simulate a threshold crossed
 #define KFIFO_SIZE     256    // Number of samples
 
+#define DEFAULT_SAMPLE_MS      100     // Default sampling time
+#define DEFAULT_THRESHOLD_MC   45000   // Default milli-degree threshold
+
 /*
  * This structure holds the device-specific data.
  */

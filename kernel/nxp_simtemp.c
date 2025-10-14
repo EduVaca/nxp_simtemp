@@ -4,6 +4,7 @@
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
 #include <linux/sysfs.h>
+#include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/kfifo.h>
 #include <linux/poll.h>
@@ -15,6 +16,7 @@
 #include <linux/workqueue.h>        // For workqueue functions
 #include <linux/timekeeping.h>      // For ktime_get_ns()
 #include <linux/random.h>           // For get_random_u32()
+#include <linux/property.h>         // For struct property_entry
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
 
@@ -22,10 +24,11 @@
 #include "nxp_simtemp.h"
 
 /* Use a standard major.minor.patch versioning scheme */
-#define DRIVER_VERSION "1.2.0"
+#define DRIVER_VERSION "1.3.0"
 
 /* Device specific parameters */
-#define DRIVER_NAME "simtemp"
+#define DRIVER_NAME       "simtemp"
+#define PLATFORM_DEV_NAME DRIVER_NAME
 
 /* Device structure holding device state */
 static struct simtemp_dev *simtemp_data;
@@ -343,14 +346,14 @@ static int simtemp_probe(struct platform_device *pdev)
     platform_set_drvdata(pdev, simtemp_data);
 
     /* Read the 'sampling-ms' property from the device tree. */
-    ret = of_property_read_u32(pdev->dev.of_node, "sampling-ms", &simtemp_data->sampling_ms);
+    ret = device_property_read_u32(dev, "sampling-ms", &simtemp_data->sampling_ms);
     if (ret) {
         dev_err(dev, "Failed to read 'sampling-ms' property\n");
         return ret;
     }
 
     /* Read the 'threshold-mC' property from the device tree. */
-    ret = of_property_read_u32(pdev->dev.of_node, "threshold-mC", &simtemp_data->threshold_mC);
+    ret = device_property_read_u32(dev, "threshold-mC", &simtemp_data->threshold_mC);
     if (ret) {
         dev_err(dev, "Failed to read 'threshold-mC' property\n");
         return ret;
@@ -435,12 +438,12 @@ static void simtemp_remove(struct platform_device *pdev)
 
 /* Match the device tree compatible string to this driver. */
 static const struct of_device_id simtemp_of_match[] = {
-    { .compatible = "nxp,simtemp", },
+    { .compatible = "nxp,"PLATFORM_DEV_NAME, },
     { /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, simtemp_of_match);
 
-/* Define the platform driver structure. */
+/* Platform DRIVER structure. */
 static struct platform_driver simtemp_driver = {
     .probe  = simtemp_probe,
     .remove = simtemp_remove,
@@ -450,8 +453,119 @@ static struct platform_driver simtemp_driver = {
     },
 };
 
-/* Register the driver at module initialization. */
-module_platform_driver(simtemp_driver);
+
+/*
+ * Variables to hold device/driver states.
+ *
+ * This is needed for testing purposes so a local platform device is bind to
+ * this device driver in absent of a DT's device node
+ */
+static bool platform_driver_registered;
+static bool platform_device_registered;
+static struct platform_device *simtemp_device_simple;
+
+/*
+ * Define integer values as device properties as is common device tree bindings.
+ */
+static const u32 prop_sampling_ms = DEFAULT_SAMPLE_MS;
+static const u32 prop_threshold_mC = DEFAULT_THRESHOLD_MC;
+
+/* Device properties */
+static struct property_entry simtemp_properties[] = {
+    PROPERTY_ENTRY_U32("sampling-ms", prop_sampling_ms),
+    PROPERTY_ENTRY_U32("threshold-mC", prop_threshold_mC),
+    { /* sentinel */ },
+};
+
+/* Platform DEVICE structure */
+static struct platform_device_info simtemp_device = {
+    .name           = PLATFORM_DEV_NAME,    // Device name for driver matching
+    .id             = PLATFORM_DEVID_NONE,  // Instance ID
+    .properties     = simtemp_properties,   // Attach our properties
+};
+
+/**
+ * @brief Entry point for device driver call at insmod.
+ * @return 0 if device allocation and proving successed,
+ *         different than 0 otherwise.
+ */
+static int __init simtemp_init(void) {
+    int retval;
+
+    pr_info(DRIVER_NAME": Entry point\n");
+
+    /* Try to bind the device registered in the device tree blob (DTB) */
+    retval = platform_driver_probe(&simtemp_driver, simtemp_probe);
+    if (retval == 0) {
+        platform_driver_registered = true;
+        pr_info(DRIVER_NAME": Successfully added platform device %s\n",
+            simtemp_driver.driver.name);
+    } else {
+        pr_err(DRIVER_NAME": Failed to bind driver %s to %s: %d\n",
+            simtemp_driver.driver.name, PLATFORM_DEV_NAME, retval);
+    }
+
+    /*
+     * If prove failed, then the DTB entry is not available
+     * so create a software device for testing purposes
+     */
+    if (platform_driver_registered == false) {
+        simtemp_device_simple = platform_device_register_full(&simtemp_device);
+        if (IS_ERR(simtemp_device_simple)) {
+            retval = PTR_ERR(simtemp_device_simple);
+            pr_err(DRIVER_NAME": Failed to add platform device with properties:"
+                "%d\n", retval);
+        } else {
+            platform_device_registered = true;
+            pr_info(DRIVER_NAME": Platform device %s was registered"
+                " correctly\n", simtemp_device.name);
+        }
+    }
+
+    /* If the software device was created, then try to bind again. */
+    if (platform_device_registered == true) {
+        retval = platform_driver_probe(&simtemp_driver, simtemp_probe);
+        if (retval == 0) {
+            platform_driver_registered = true;
+            pr_info(DRIVER_NAME": Successfully added platform device %s\n",
+                simtemp_driver.driver.name);
+        } else {
+            pr_err(DRIVER_NAME": Failed to bind driver %s to %s: %d\n",
+                simtemp_driver.driver.name, PLATFORM_DEV_NAME, retval);
+        }
+    }
+
+    /* If any errors, release memory/structs allocated. */
+    if (retval) {
+        if (platform_device_registered) {
+            platform_device_unregister(simtemp_device_simple);
+        }
+        if (platform_driver_registered) {
+            platform_driver_unregister(&simtemp_driver);
+        }
+    }
+
+    return retval;
+}
+
+/**
+ * @brief Exit point for device driver, release memory/structs allocated.
+ */
+static void __exit simtemp_exit(void) {
+
+    pr_info(DRIVER_NAME": Exit point\n");
+
+    if (platform_device_registered) {
+        platform_device_unregister(simtemp_device_simple);
+    }
+    if (platform_driver_registered) {
+        platform_driver_unregister(&simtemp_driver);
+    }
+}
+
+/* Register entry/exit points. */
+module_init(simtemp_init);
+module_exit(simtemp_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduardo Vaca <edu.daniel.vs@gmail.com>");

@@ -28,7 +28,7 @@ This project demonstrates a simulated temperature sensor device driver for embed
 
     **TODO**: Automate Kernel headers setup to start building the KMD
 
-    Get Linaro GCC binaries for cross compilation
+    **ONLY for host architectures different than aarch64**: Get Linaro GCC binaries for cross compilation.
 
     ```sh
     cd /tmp
@@ -66,6 +66,7 @@ This project demonstrates a simulated temperature sensor device driver for embed
 
     # Set cross compilation
     export ARCH=arm64
+    # If the running host is aarch64 set CROSS_COMPILE=/usr/bin/aarch64-linux-gnu-
     export CROSS_COMPILE=/usr/src/linaro-5/bin/aarch64-linux-gnu-
 
     # Configure the kernel for a RBPI target
