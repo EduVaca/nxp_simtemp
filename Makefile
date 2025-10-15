@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (c) 2025 Eduardo Vaca <edu.daniel.vs@gmail.com>
+
 # Get the absolute path of this file.
 WORKSPACE := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 export WORKSPACE

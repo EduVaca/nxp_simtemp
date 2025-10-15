@@ -1,5 +1,12 @@
-// Enable the simulated temperature sensor
-// https://www.kernel.org/doc/Documentation/devicetree/overlay-notes.txt
+// SPDX-License-Identifier: GPL-2.0
+/*
+ *  Simulated temperature sensor device tree.
+ *
+ *  Copyright (c) 2025 Eduardo Vaca <edu.daniel.vs@gmail.com>
+ *
+ *  Notes: https://www.kernel.org/doc/Documentation/devicetree/overlay-notes.txt
+ */
+
 /dts-v1/;
 /plugin/;
 

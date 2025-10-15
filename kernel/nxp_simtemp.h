@@ -1,28 +1,56 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * nxp_simtemp.h - Header file for a kernel mode driver simulating a
+ *                 temperature sensor.
+ *
+ * Copyright (c) 2025 Eduardo Vaca <edu.daniel.vs@gmail.com>
+ *
+ * See README.md for more information.
+ */
+
 #include <linux/types.h>
 
 /*
  * This structure is defined to store the temperature sample.
  */
 struct simtemp_sample {
-    u64 timestamp_ns;   // monotonic timestamp
-    u32 temp_mC;        // milli-degree Celsius (e.g., 44123 = 44.123 °C)
-    u16 flags;          // bit0=NEW_SAMPLE, bit1=THRESHOLD_CROSSED
-    u16 padding;
+    __u64 timestamp_ns;   // monotonic timestamp
+    __u32 temp_mC;        // milli-degree Celsius (e.g., 44123 = 44.123 °C)
+    __u16 flags;          // bit0=NEW_SAMPLE, bit1=THRESHOLD_CROSSED
+    __u16 padding;
 } __attribute__((packed));
+
+/* Mode definitions */
+enum {
+    MODE_NORMAL,
+    MODE_RAMP
+};
 
 /* Flags for struct simtemp_sample */
 #define NEW_SAMPLE         (1 << 0)
 #define THRESHOLD_CROSSED  (1 << 1)
 
-#define MIN_SAMPLE_MS  10     // Minimun time in ms for sampling
-#define MAX_COUNT      10     // Samples before simulate a threshold crossed
-#define KFIFO_SIZE     256    // Number of samples
+#define MIN_SAMPLE_MS  10              // Minimun time in ms for sampling
+#define RAMP_START     10              // Low limit before start crossing
+                                       // the threshold
+#define RAMP_STOP      RAMP_START + 5  // Upper limit before restart the
+                                       // crossing threshold
+#define KFIFO_SIZE     256             // Number of samples
 
 #define DEFAULT_SAMPLE_MS      100     // Default sampling time
 #define DEFAULT_THRESHOLD_MC   45000   // Default milli-degree threshold
 
+/* Device specific parameters */
+#define DRIVER_NAME       "simtemp"
+#define PLATFORM_DEV_NAME DRIVER_NAME
+#define DEVICE_NODE       DRIVER_NAME
+
+#define DEVICE_FILE "/dev/"DEVICE_NODE
+#define DEVICE_PATH "/sys/devices/platform/"PLATFORM_DEV_NAME
+
+#ifdef __KERNEL__
 /*
- * This structure holds the device-specific data.
+ * Structure to hold device-specific data.
  */
 struct simtemp_dev {
     struct miscdevice *miscdev;
@@ -30,7 +58,7 @@ struct simtemp_dev {
     wait_queue_head_t read_wait;
     wait_queue_head_t poll_wait;
     DECLARE_KFIFO(kfifo, struct simtemp_sample, KFIFO_SIZE);
-    spinlock_t lock; // Protects access to kfifo
+    spinlock_t lock; /* Protects access to kfifo */
     struct device *dev;
 
     u32 sampling_ms;
@@ -44,3 +72,4 @@ struct simtemp_dev {
 
     u32 counter;
 };
+#endif
