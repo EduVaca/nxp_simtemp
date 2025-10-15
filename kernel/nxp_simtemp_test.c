@@ -121,8 +121,10 @@ int main(int argc, char *argv[]) {
                 if (read(fd, &sample, sizeof(sample)) == sizeof(sample)) {
                     ns_to_iso8601(sample.timestamp_ns, timestamp_str,
                         sizeof(timestamp_str));
-                    if (pfd.revents & POLLPRI &&
-                        sample.flags & THRESHOLD_CROSSED) {
+                    if (pfd.revents & POLLPRI) {
+                        printf("%s live alert\n", timestamp_str);
+                    }
+                    if (sample.flags & THRESHOLD_CROSSED) {
                         printf("%s temp=%.3fC alert=1 (Threshold crossed)\n",
                             timestamp_str, (float)sample.temp_mC / 1000.0);
                     } else {

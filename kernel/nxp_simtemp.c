@@ -37,6 +37,13 @@
  * @note **Version History:**
  *
  * -----------------------------------------------------------------------------
+ * ## - 2025-10-14 - 0.1.2
+ * ### Enh
+ * - Drop the oldest and save the newest when FIFO is full.
+ * ### Fixed
+ * - Wake up pollers in every sample.
+ *
+ * -----------------------------------------------------------------------------
  * ## - 2025-10-14 - 0.1.1
  * ### Fixed
  * - Take nanoseconds from ktime_get_real_ns to convert it to UTC in user-space
@@ -53,7 +60,7 @@
  *
  * -----------------------------------------------------------------------------
  */
-#define DRIVER_VERSION "0.1.1"
+#define DRIVER_VERSION "0.1.2"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
@@ -309,10 +316,11 @@ static u32 get_temperature (struct simtemp_dev *sdev) {
 static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     struct simtemp_dev *sdev = container_of(timer, struct simtemp_dev,
         temp_hrtimer);
-    struct simtemp_sample sample;
+    struct simtemp_sample sample, drop_sample;
     __poll_t mask = 0;
     u16 old_flags;
     unsigned long flags;
+    int ret;
 
 
     /* START CRITICAL BLOCK */
@@ -323,6 +331,7 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     /* Update global fields */
     sdev->current_temp = get_temperature(sdev);
     sdev->current_flags |= NEW_SAMPLE;
+    sdev->samples_taken++;
 
     /* Get the current real time in nanoseconds since the Unix epoch */
     sample.timestamp_ns = ktime_get_real_ns();
@@ -330,15 +339,12 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
 
     if (sdev->current_temp >= sdev->threshold_mC) {
         sdev->current_flags |= THRESHOLD_CROSSED;
+        sdev->threshold_alerts++;
+        /* Set flag to wake up pollers for urgent data (threshold crossing) */
+        mask |= POLLPRI;
         dev_info(sdev->dev, "Threshold crossed! temp=%u mC, threshold=%u mC\n",
                  sdev->current_temp, sdev->threshold_mC);
 
-        /* Only alert at the first cross */
-        if ((old_flags & THRESHOLD_CROSSED) == 0) {
-            sdev->threshold_alerts++;
-            /* Wake up pollers for urgent data (threshold crossing) */
-            mask |= POLLPRI;
-        }
     } else { /* Clean flags */
         sdev->current_flags &= ~THRESHOLD_CROSSED;
     }
@@ -346,20 +352,19 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     sample.flags = sdev->current_flags;
 
     /* Update FIFO */
-    if (kfifo_put(&sdev->kfifo, sample)) {
-        sdev->samples_taken++;
-        /* Wake up ONE blocking reader */
-        wake_up_interruptible(&sdev->read_wait);
-        /* Set flag to wake up pollers for new data */
-        mask |= POLLIN;
-    } else {
-        dev_warn(sdev->dev, "kfifo is full, dropping sample\n");
+    if (kfifo_is_full(&sdev->kfifo)) {
+        ret = kfifo_get(&sdev->kfifo, &drop_sample);
+        dev_warn(sdev->dev, "kfifo is full, dropping latest sample: %u mC at"
+            " %llu ns, flags=0x%02x\n, ret=%d", drop_sample.temp_mC,
+            drop_sample.timestamp_ns, drop_sample.flags, ret);
     }
 
+    /* Should be at least one slot for this sample*/
+    kfifo_put(&sdev->kfifo, sample);
+    /* Wake up ONE blocking reader */
+    wake_up_interruptible(&sdev->read_wait);
     /* Wake up pollers for new data */
-    if ((mask & (POLLIN | POLLPRI)) > 0) {
-        wake_up_interruptible_poll(&sdev->poll_wait, mask);
-    }
+    wake_up_interruptible_poll(&sdev->poll_wait, (mask | POLLIN));
 
     dev_info(sdev->dev, "New sample recorded: %u mC at %llu ns, flags=0x%02x\n",
             sample.temp_mC, sample.timestamp_ns, sample.flags);
