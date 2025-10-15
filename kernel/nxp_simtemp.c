@@ -32,9 +32,18 @@
 
 /* NXP defined structs */
 #include "nxp_simtemp.h"
+#include "nxp_simtemp_ioctl.h"
 
 /**
  * @note **Version History:**
+ *
+ * -----------------------------------------------------------------------------
+ * ## - 2025-10-14 - 0.1.3
+ * ### Enh
+ * - Add operation modes; normal: samples are always below the threshold
+ *   ramp: samples are below the threshold RAMP_START times and above the
+ *   threshold (RAMP_START - RAMP_STOP) times.
+ * - Driver parameters can be changed via IOCTL calls.
  *
  * -----------------------------------------------------------------------------
  * ## - 2025-10-14 - 0.1.2
@@ -60,7 +69,7 @@
  *
  * -----------------------------------------------------------------------------
  */
-#define DRIVER_VERSION "0.1.2"
+#define DRIVER_VERSION "0.1.3"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
@@ -153,12 +162,53 @@ static DEVICE_ATTR_RW(threshold_mC);
 static ssize_t mode_show(struct device *dev, struct device_attribute *attr,
     char *buf)
 {
-    return scnprintf(buf, PAGE_SIZE, "normal\n");
+    struct simtemp_dev *sdev = dev->driver_data;
+    unsigned long flags;
+    const char *mode_str;
+    u32 mode;
+
+    /* START CRITICAL BLOCK */
+    spin_lock_irqsave(&sdev->lock, flags);
+    mode = simtemp_data->mode;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    /* END CRITICAL BLOCK */
+
+    switch (mode) {
+        case MODE_NORMAL:
+            mode_str = "normal";
+            break;
+        case MODE_RAMP:
+            mode_str = "ramp";
+            break;
+        default:
+            mode_str = "unknown";
+            break;
+    }
+
+    return scnprintf(buf, PAGE_SIZE, "%s\n", mode_str);
 }
 
 static ssize_t mode_store(struct device *dev, struct device_attribute *attr,
     const char *buf, size_t count)
 {
+    struct simtemp_dev *sdev = dev->driver_data;
+    unsigned long flags;
+    u32 new_mode;
+
+    if (sysfs_streq(buf, "normal")) {
+        new_mode = MODE_NORMAL;
+    } else if (sysfs_streq(buf, "ramp")) {
+        new_mode = MODE_RAMP;
+    } else {
+        return -EINVAL;
+    }
+
+    /* START CRITICAL BLOCK */
+    spin_lock_irqsave(&sdev->lock, flags);
+    simtemp_data->mode = new_mode;
+    spin_unlock_irqrestore(&sdev->lock, flags);
+    /* END CRITICAL BLOCK */
+
     return count;
 }
 static DEVICE_ATTR_RW(mode);
@@ -272,12 +322,51 @@ static __poll_t simtemp_poll(struct file *file,
     return mask;
 }
 
+static long simtemp_ioctl(struct file *file, unsigned int cmd,
+    unsigned long arg)
+{
+    struct simtemp_dev *sdev = file->private_data;
+    struct simtemp_config cfg;
+    int err = 0;
+    unsigned long flags;
+
+
+    if (_IOC_TYPE(cmd) != SIMTEMP_IOC_MAGIC)
+        return -ENOTTY;
+
+    switch (cmd) {
+        case SIMTEMP_IOC_SET_ALL:
+            if (copy_from_user(&cfg, (void __user *)arg, sizeof(cfg))) {
+                return -EFAULT;
+            }
+
+            /* START CRITICAL BLOCK */
+            spin_lock_irqsave(&sdev->lock, flags);
+            sdev->sampling_ms = cfg.sampling_ms;
+            sdev->threshold_mC = cfg.threshold_mC;
+            sdev->mode = cfg.mode;
+            hrtimer_cancel(&sdev->temp_hrtimer);
+            hrtimer_start(&sdev->temp_hrtimer, ms_to_ktime(sdev->sampling_ms),
+                HRTIMER_MODE_REL);
+            spin_unlock_irqrestore(&sdev->lock, flags);
+            /* END CRITICAL BLOCK */
+            dev_info(sdev->dev, "Config updated via ioctl.\n");
+            break;
+        default:
+            err = -ENOTTY;
+            break;
+    }
+
+    return err;
+}
+
 static const struct file_operations simtemp_fops = {
-    .owner   = THIS_MODULE,
-    .open    = simtemp_open,
-    .release = simtemp_release,
-    .read    = simtemp_read,
-    .poll    = simtemp_poll,
+    .owner          = THIS_MODULE,
+    .open           = simtemp_open,
+    .release        = simtemp_release,
+    .read           = simtemp_read,
+    .poll           = simtemp_poll,
+    .unlocked_ioctl = simtemp_ioctl,
 };
 
 static struct miscdevice misc_simtemp_dev = {
@@ -298,11 +387,18 @@ static u32 get_temperature (struct simtemp_dev *sdev) {
     /* Generate a new simulated temperature value */
     rand_val = get_random_u32();
     temp = rand_val % sdev->threshold_mC;
+    sdev->counter += 1;
 
-    /* Simulate a threshold crossed read every MAX_COUNT samples */
-    if (++sdev->counter > MAX_COUNT) {
-        sdev->counter = 0;
-        temp = sdev->threshold_mC + 1;
+    switch (sdev->mode) {
+        case MODE_RAMP:
+            /* Simulate a threshold crossed read every MAX_COUNT samples */
+            if (sdev->counter > RAMP_START) {
+                temp = sdev->threshold_mC + sdev->counter;
+                if (sdev->counter >= RAMP_STOP) {
+                    sdev->counter = 0;
+                }
+            }
+            break;
     }
 
     return temp;
@@ -417,6 +513,7 @@ static int simtemp_probe(struct platform_device *pdev)
 
     /* Generate a new simulated temperature value. */
     simtemp_data->current_temp = get_temperature(simtemp_data);
+    simtemp_data->mode = MODE_NORMAL;
 
     /* Initialize wait queues for read/epoll/select operations. */
     init_waitqueue_head(&simtemp_data->read_wait);

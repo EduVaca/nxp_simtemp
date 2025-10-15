@@ -20,13 +20,22 @@ struct simtemp_sample {
     __u16 padding;
 } __attribute__((packed));
 
+/* Mode definitions */
+enum {
+    MODE_NORMAL,
+    MODE_RAMP
+};
+
 /* Flags for struct simtemp_sample */
 #define NEW_SAMPLE         (1 << 0)
 #define THRESHOLD_CROSSED  (1 << 1)
 
-#define MIN_SAMPLE_MS  10     // Minimun time in ms for sampling
-#define MAX_COUNT      10     // Samples before simulate a threshold crossed
-#define KFIFO_SIZE     256    // Number of samples
+#define MIN_SAMPLE_MS  10              // Minimun time in ms for sampling
+#define RAMP_START     10              // Low limit before start crossing
+                                       // the threshold
+#define RAMP_STOP      RAMP_START + 5  // Upper limit before restart the
+                                       // crossing threshold
+#define KFIFO_SIZE     256             // Number of samples
 
 #define DEFAULT_SAMPLE_MS      100     // Default sampling time
 #define DEFAULT_THRESHOLD_MC   45000   // Default milli-degree threshold

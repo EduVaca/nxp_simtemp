@@ -20,6 +20,7 @@
 
 /* NXP defined structs */
 #include "nxp_simtemp.h"
+#include "nxp_simtemp_ioctl.h"
 #include "nxp_simtemp_test.h"
 
 /**
@@ -47,6 +48,9 @@ void print_help(char *prog_name) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -s <ms>           Set sampling period via sysfs.\n");
     fprintf(stderr, "  -t <mC>           Set threshold via sysfs.\n");
+    fprintf(stderr, "  -m <mode>         Set mode via sysfs (normal|ramp).\n");
+    fprintf(stderr, "  -i <ms>:<mC>:<mode>  Set all via ioctl (mode: 0=normal,"
+                                         " 1=ramp).\n");
     fprintf(stderr, "  -p                Run in poll loop, printing samples and"
                                          " alerts.\n");
     exit(EXIT_FAILURE);
@@ -64,7 +68,8 @@ int main(int argc, char *argv[]) {
     int ret;
     char timestamp_str[64];
     struct simtemp_sample sample;
-
+    struct simtemp_config cfg;
+    char *token;
 
     if (argc < 2) {
         print_help(argv[0]);
@@ -95,6 +100,67 @@ int main(int argc, char *argv[]) {
         }
         close(fd);
         printf("Set threshold_mC to %s via sysfs.\n", argv[2]);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "-m") == 0 && argc == 3) {
+        snprintf(path, sizeof(path), DEVICE_PATH"/mode");
+        fd = open(path, O_WRONLY);
+        if (fd < 0) {
+            perror("open sysfs");
+            return 1;
+        }
+        if (write(fd, argv[2], strlen(argv[2])) < 0) {
+            perror("write sysfs");
+            return 1;
+        }
+        close(fd);
+        printf("Set mode to %s via sysfs.\n", argv[2]);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "-i") == 0 && argc == 3) {
+        fd = open(DEVICE_FILE, O_RDONLY);
+        if (fd < 0) {
+            perror("open device");
+            return 1;
+        }
+
+        token = strtok(argv[2], ":");
+        if (token) {
+            cfg.sampling_ms = atoi(token);
+        } else {
+            fprintf(stderr, "Invalid ioctl config format.\n");
+            close(fd);
+            return 1;
+        }
+
+        token = strtok(NULL, ":");
+        if (token) {
+            cfg.threshold_mC = atoi(token);
+        } else {
+            fprintf(stderr, "Invalid ioctl config format.\n");
+            close(fd);
+            return 1;
+        }
+
+        token = strtok(NULL, ":");
+        if (token) {
+            cfg.mode = atoi(token);
+        } else {
+            fprintf(stderr, "Invalid ioctl config format.\n");
+            close(fd);
+            return 1;
+        }
+
+        if (ioctl(fd, SIMTEMP_IOC_SET_ALL, &cfg) < 0) {
+            perror("ioctl");
+            close(fd);
+            return 1;
+        }
+        printf("Set conf via ioctl: sampling_ms=%u, threshold_mC=%u, mode=%u\n",
+               cfg.sampling_ms, cfg.threshold_mC, cfg.mode);
+        close(fd);
         return 0;
     }
 
