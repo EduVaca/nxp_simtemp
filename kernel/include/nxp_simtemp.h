@@ -8,6 +8,9 @@
  * See README.md for more information.
  */
 
+#ifndef KERNEL_INCLUDE_NXP_SIMTEMP_H_
+#define KERNEL_INCLUDE_NXP_SIMTEMP_H_
+
 #include <linux/types.h>
 
 /*
@@ -73,3 +76,5 @@ struct simtemp_dev {
     u32 counter;
 };
 #endif
+
+#endif  // KERNEL_INCLUDE_NXP_SIMTEMP_H_

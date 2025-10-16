@@ -8,6 +8,9 @@
  * See README.md for more information.
  */
 
+#ifndef KERNEL_INCLUDE_NXP_SIMTEMP_IOCTL_H_
+#define KERNEL_INCLUDE_NXP_SIMTEMP_IOCTL_H_
+
 #include <linux/types.h>
 
 /* IOCTL configuration structure */
@@ -20,3 +23,5 @@ struct simtemp_config {
 /* IOCTL command definitions */
 #define SIMTEMP_IOC_MAGIC 'T'
 #define SIMTEMP_IOC_SET_ALL _IOW(SIMTEMP_IOC_MAGIC, 1, struct simtemp_config)
+
+#endif  // KERNEL_INCLUDE_NXP_SIMTEMP_IOCTL_H_

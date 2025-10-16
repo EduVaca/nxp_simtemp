@@ -9,8 +9,13 @@
  * See README.md for more information.
  */
 
+#ifndef KERNEL_INCLUDE_NXP_SIMTEMP_TEST_H_
+#define KERNEL_INCLUDE_NXP_SIMTEMP_TEST_H_
+
 #include <linux/types.h>
 
 /* --- Prototypes --- */
-void ns_to_iso8601(long long ns, char* buffer, size_t size);
+void ns_to_iso8601(__u64 ns, char* buffer, size_t size);
 void print_help(char *prog_name);
+
+#endif  // KERNEL_INCLUDE_NXP_SIMTEMP_TEST_H_

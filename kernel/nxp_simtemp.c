@@ -31,8 +31,8 @@
 #include <linux/ktime.h>
 
 /* NXP defined structs */
-#include "nxp_simtemp.h"
-#include "nxp_simtemp_ioctl.h"
+#include "include/nxp_simtemp.h"
+#include "include/nxp_simtemp_ioctl.h"
 
 /**
  * @note **Version History:**
@@ -76,8 +76,7 @@ static struct simtemp_dev *simtemp_data;
 
 /* --- Sysfs Attributes --- */
 static ssize_t sampling_ms_show(struct device *dev,
-    struct device_attribute *attr, char *buf)
-{
+    struct device_attribute *attr, char *buf) {
     struct simtemp_dev *sdev = dev->driver_data;
     unsigned long flags;
     u32 sampling_ms;
@@ -87,13 +86,12 @@ static ssize_t sampling_ms_show(struct device *dev,
     sampling_ms = sdev->sampling_ms;
     spin_unlock_irqrestore(&sdev->lock, flags);
     /* END CRITICAL BLOCK */
-    
+
     return scnprintf(buf, PAGE_SIZE, "%u\n", sampling_ms);
 }
 
 static ssize_t sampling_ms_store(struct device *dev,
-    struct device_attribute *attr, const char *buf, size_t count)
-{
+    struct device_attribute *attr, const char *buf, size_t count) {
     struct simtemp_dev *sdev = dev->driver_data;
     u32 val;
     int err;
@@ -121,8 +119,7 @@ static ssize_t sampling_ms_store(struct device *dev,
 static DEVICE_ATTR_RW(sampling_ms);
 
 static ssize_t threshold_mC_show(struct device *dev,
-    struct device_attribute *attr, char *buf)
-{
+    struct device_attribute *attr, char *buf) {
     struct simtemp_dev *sdev = dev->driver_data;
     u32 threshold_mC;
     unsigned long flags;
@@ -137,8 +134,7 @@ static ssize_t threshold_mC_show(struct device *dev,
 }
 
 static ssize_t threshold_mC_store(struct device *dev,
-    struct device_attribute *attr, const char *buf, size_t count)
-{
+    struct device_attribute *attr, const char *buf, size_t count) {
     struct simtemp_dev *sdev = dev->driver_data;
     u32 val;
     int err;
@@ -160,8 +156,7 @@ static ssize_t threshold_mC_store(struct device *dev,
 static DEVICE_ATTR_RW(threshold_mC);
 
 static ssize_t mode_show(struct device *dev, struct device_attribute *attr,
-    char *buf)
-{
+    char *buf) {
     struct simtemp_dev *sdev = dev->driver_data;
     unsigned long flags;
     const char *mode_str;
@@ -189,8 +184,7 @@ static ssize_t mode_show(struct device *dev, struct device_attribute *attr,
 }
 
 static ssize_t mode_store(struct device *dev, struct device_attribute *attr,
-    const char *buf, size_t count)
-{
+    const char *buf, size_t count) {
     struct simtemp_dev *sdev = dev->driver_data;
     unsigned long flags;
     u32 new_mode;
@@ -214,8 +208,7 @@ static ssize_t mode_store(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_RW(mode);
 
 static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
-    char *buf)
-{
+    char *buf) {
     struct simtemp_dev *sdev = dev->driver_data;
     u64 samples_taken, threshold_alerts;
     unsigned long flags;
@@ -279,7 +272,7 @@ static ssize_t simtemp_read(struct file *file, char __user *buf, size_t count,
         ret = wait_event_interruptible_exclusive(sdev->read_wait,
             kfifo_is_empty(&sdev->kfifo) == 0);
         if (ret) {
-            return ret; // Signal received
+            return ret;  // Signal received
         }
     }
 
@@ -323,8 +316,7 @@ static __poll_t simtemp_poll(struct file *file,
 }
 
 static long simtemp_ioctl(struct file *file, unsigned int cmd,
-    unsigned long arg)
-{
+    unsigned long arg) {
     struct simtemp_dev *sdev = file->private_data;
     struct simtemp_config cfg;
     int err = 0;
@@ -381,7 +373,7 @@ static struct miscdevice misc_simtemp_dev = {
  * @return A random temperature value from 0 to threshold_mC,
  *         and threshold_mC + 1 every MAX_COUNT
  */
-static u32 get_temperature (struct simtemp_dev *sdev) {
+static u32 get_temperature(struct simtemp_dev *sdev) {
     u32 rand_val, temp;
 
     /* Generate a new simulated temperature value */
@@ -474,8 +466,7 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
 }
 
 /* --- Platform Driver Core --- */
-static int simtemp_probe(struct platform_device *pdev)
-{
+static int simtemp_probe(struct platform_device *pdev) {
     struct device *dev = &pdev->dev;
     int ret;
 
@@ -704,7 +695,6 @@ static int __init simtemp_init(void) {
  * @brief Exit point for device driver, release memory/structs allocated.
  */
 static void __exit simtemp_exit(void) {
-
     pr_info(DRIVER_NAME": Exit point\n");
 
     if (platform_device_registered) {
@@ -721,5 +711,6 @@ module_exit(simtemp_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduardo Vaca <edu.daniel.vs@gmail.com>");
-MODULE_DESCRIPTION("A dummy platform driver for an NXP simuldated temperature device.");
+MODULE_DESCRIPTION(
+    "A dummy platform driver for an NXP simuldated temperature device.");
 MODULE_VERSION(DRIVER_VERSION);
