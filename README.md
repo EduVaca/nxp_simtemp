@@ -15,7 +15,8 @@ This project demonstrates a simulated temperature sensor device driver for embed
 
     ```sh
     sudo apt-get update
-    sudo apt-get install git build-essential fakeroot libncurses-dev libssl-dev ccache bison flex libelf-dev dwarves device-tree-compiler
+    sudo apt-get install git build-essential fakeroot libncurses-dev libssl-dev ccache bison flex \
+    libelf-dev dwarves device-tree-compiler python3 cpplint pylint shellcheck
     ```
 
 -   **QEMU (for testing)**:
@@ -80,15 +81,25 @@ This project demonstrates a simulated temperature sensor device driver for embed
 
 ### 1. Build the Project
 
-Use the provided `Makefile` to compile all components.
+Use the provided build script `./scripts/build.sh` to compile all components.
 
 1.  **Run the script**:
 
     ```sh
-    make
+    ./scripts/build.sh
     ```
 
+    *NOTE:* To clean up the project run the following command: `./script/build.sh -c`
+
 ### 2. Deploy to the Target
+
+#### For an Ubuntu host
+
+1.  **Validate the module is loaded, read/writen, and unload**
+
+    ```sh
+    sudo ./scripts/run_demo.sh
+    ```
 
 #### For a Physical Embedded Board
 
@@ -152,7 +163,36 @@ Use the provided `Makefile` to compile all components.
 
 ## Usage
 
-### 1. Validate the overlay is loaded at startup
+#### For an Ubuntu host
+
+-   **Validate the module is loaded**
+
+    ```sh
+    lsmod | grep nxp_simtemp
+    ```
+
+    If the module isn't loaded, load it running the following command:
+
+    ```sh
+    sudo insmod kernel/nxp_simtemp.ko
+    ```
+
+-   **Run `setup.sh` as `root` to grant access for low privilage users**
+
+    ```sh
+    sudo ./scripts/setup.sh
+    ```
+
+-   **Run GUI demo**
+
+    ```sh
+    python3 ./user/gui/app.py
+    ```
+
+
+### For a QEMU ARM64 `raspi3b` Machine
+
+#### 1. Validate the overlay is loaded at startup
 
 Valdiate the folder `simtemp` is created under `/sys/firmware/devicetree/base`
 
@@ -167,7 +207,7 @@ Valdiate the folder `simtemp` is created under `/sys/firmware/devicetree/base`
     ls -l /sys/firmware/devicetree/base/simtemp
     ```
 
-### 2. Validate KMD in QEMU ARM64
+#### 2. Validate KMD in QEMU ARM64
 
 -   **Copy `nxp-simtemp.ko` to QEMU VM**:
 
