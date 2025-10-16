@@ -38,6 +38,11 @@
  * @note **Version History:**
  *
  * -----------------------------------------------------------------------------
+ * ## - 2025-10-16 - 1.0.0
+ * ### Enh
+ * - First version in MAIN
+ *
+ * -----------------------------------------------------------------------------
  * ## - 2025-10-14 - 0.1.3
  * ### Enh
  * - Add operation modes; normal: samples are always below the threshold
@@ -69,7 +74,7 @@
  *
  * -----------------------------------------------------------------------------
  */
-#define DRIVER_VERSION "0.1.3"
+#define DRIVER_VERSION "1.0.0"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
