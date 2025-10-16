@@ -6,7 +6,7 @@
 
 # Get paths to folders
 SCRIPT_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
-SRC_PATH=$(dirname ${SCRIPT_DIR})
+SRC_PATH=$(dirname "${SCRIPT_DIR}")
 BUILD_PATH="${SRC_PATH}/build"
 
 # Get the current kernel version
@@ -37,7 +37,7 @@ function local_exit {
     if [ -v KERNEL_HEADERS ]; then
         unset KERNEL_HEADERS
     fi
-    exit $1
+    exit "$1"
 }
 
 print_status "info" "--- Build start ---"
@@ -63,12 +63,12 @@ print_status "ok" "Kernel headers"
 print_status "info" "Checking build directory..."
 if [ -e "${BUILD_PATH}" ]; then
     print_status "info" "Removing build directory ${BUILD_PATH}"
-    rm -rf ${BUILD_PATH}
+    rm -rf "${BUILD_PATH}"
 fi
 
 export BUILD_PATH
 print_status "info" "Cleanig ${SRC_PATH}/kernel"
-make -C ${SRC_PATH}/kernel clean
+make -C "${SRC_PATH}/kernel" clean
 
 # --- It's just clean-up command ---
 case "$1" in
@@ -79,7 +79,7 @@ case "$1" in
 esac
 
 print_status "info" "Creating build directory ${BUILD_PATH}"
-mkdir ${BUILD_PATH}
+mkdir "${BUILD_PATH}"
 if [ ! -e "${BUILD_PATH}" ]; then
     print_status "error" "mkdir ${BUILD_PATH}"
     local_exit 12
@@ -90,10 +90,11 @@ print_status "ok" "Build directory"
 # --- Compile the Device Tree Overlay ---
 print_status "info" "Compiling nxp-simtemp.dtsi ..."
 
-dtc -O dtb -o ${BUILD_PATH}/nxp-simtemp.dtbo -@ \
-    ${SRC_PATH}/kernel/dts/nxp-simtemp.dtsi
+dtc -O dtb -o "${BUILD_PATH}/nxp-simtemp.dtbo" -@ \
+    "${SRC_PATH}/kernel/dts/nxp-simtemp.dtsi"
+exit_code="$?"
 
-if [ $? -ne 0 ] || [ ! -e "${BUILD_PATH}/nxp-simtemp.dtbo" ]; then
+if [ "${exit_code}" -ne 0 ] || [ ! -e "${BUILD_PATH}/nxp-simtemp.dtbo" ]; then
     print_status "error" "Device Tree Overlay compilation"
     local_exit 21
 fi
@@ -102,7 +103,7 @@ print_status "ok" "nxp-simtemp.dtbo created"
 
 # --- Compile Kernel Mode Driver and testing application ---
 print_status "info" "Compiling nxp_simtemp driver ..."
-make -C ${SRC_PATH}/kernel
+make -C "${SRC_PATH}/kernel"
 
 if [ ! -e "${SRC_PATH}/kernel/nxp_simtemp.ko" ]; then
     print_status "error" "Compiling nxp_simtemp driver ..."

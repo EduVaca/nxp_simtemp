@@ -19,9 +19,9 @@
 #include <poll.h>
 
 /* NXP defined structs */
-#include "nxp_simtemp.h"
-#include "nxp_simtemp_ioctl.h"
-#include "nxp_simtemp_test.h"
+#include "include/nxp_simtemp.h"
+#include "include/nxp_simtemp_ioctl.h"
+#include "include/nxp_simtemp_test.h"
 
 /**
  * @brief Convert nanoseconds to time in iso8601 format.
@@ -29,14 +29,16 @@
  * @param buffer Buffer to hold the formated time
  * @param size Size of buffer
  */
-void ns_to_iso8601(long long ns, char* buffer, size_t size) {
+void ns_to_iso8601(__u64 ns, char* buffer, size_t size) {
     time_t sec = ns / 1000000000;
-    long long nanosec = ns % 1000000000;
-    struct tm *tm_info = gmtime(&sec);
+    __s64 nanosec = ns % 1000000000;
+    struct tm tm_info;
 
-    strftime(buffer, size, "%Y-%m-%dT%H:%M:%S", tm_info);
-    snprintf(buffer + strlen(buffer), size - strlen(buffer), ".%03uZ",
-        (unsigned int)(nanosec / 1000000));
+    if (gmtime_r(&sec, &tm_info) != NULL) {
+        strftime(buffer, size, "%Y-%m-%dT%H:%M:%S", &tm_info);
+        snprintf(buffer + strlen(buffer), size - strlen(buffer), ".%03uZ",
+            (unsigned int)(nanosec / 1000000));
+    }
 }
 
 /**
@@ -69,7 +71,7 @@ int main(int argc, char *argv[]) {
     char timestamp_str[64];
     struct simtemp_sample sample;
     struct simtemp_config cfg;
-    char *token;
+    char *token, *saveptr1;
 
     if (argc < 2) {
         print_help(argv[0]);
@@ -126,7 +128,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        token = strtok(argv[2], ":");
+        token = strtok_r(argv[2], ":", &saveptr1);
         if (token) {
             cfg.sampling_ms = atoi(token);
         } else {
@@ -135,7 +137,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        token = strtok(NULL, ":");
+        token = strtok_r(NULL, ":", &saveptr1);
         if (token) {
             cfg.threshold_mC = atoi(token);
         } else {
@@ -144,7 +146,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        token = strtok(NULL, ":");
+        token = strtok_r(NULL, ":", &saveptr1);
         if (token) {
             cfg.mode = atoi(token);
         } else {

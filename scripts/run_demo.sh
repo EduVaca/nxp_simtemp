@@ -6,7 +6,7 @@ set -e  # Exit immediately if a command exits with a non-zero status.
 
 # Get paths to folders
 SCRIPT_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
-SRC_PATH=$(dirname ${SCRIPT_DIR})
+SRC_PATH=$(dirname "${SCRIPT_DIR}")
 BUILD_PATH="${SRC_PATH}/build"
 
 MODULE_FILE="${SRC_PATH}/kernel/nxp_simtemp.ko"
@@ -39,7 +39,7 @@ function check_permissions {
     if [ ! -e "${path}" ]; then
         print_status "error" "Sysfs path not found: ${path}"
     fi
-    FILE_PERM=$(stat -c "%a" ${path})
+    FILE_PERM=$(stat -c "%a" "${path}")
     case "${expected_permissions}" in
         "rw")
             if [ "${FILE_PERM}" -eq 644 ]; then

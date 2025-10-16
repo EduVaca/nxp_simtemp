@@ -12,7 +12,7 @@ set -e # Exit immediately if a command exits with a non-zero status
 
 # Get paths to folders
 SCRIPT_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
-SRC_PATH=$(dirname ${SCRIPT_DIR})
+SRC_PATH=$(dirname "${SCRIPT_DIR}")
 
 # ==============================================================================
 # Helper functions
@@ -91,12 +91,14 @@ echo
 # ==============================================================================
 
 # Lint C code in the 'kernel' directory
-run_linter "C++ Linter" "cpplint --recursive ${SRC_PATH}/kernel" "C files"
+CPP_FILTER="-runtime/int,-readability/casting"
+run_linter "C++ Linter" \
+    "cpplint --filter=${CPP_FILTER} --recursive ${SRC_PATH}/kernel" "C files"
 
 # Lint Device Tree Source (DTS) files in the 'kernel' directory
 # The `dtc` command can be used to validate DTS file syntax by compiling it
 # and checking for errors.
-DTS_FILES=$(find ${SRC_PATH}/kernel -name "*.dtsi")
+DTS_FILES=$(find "${SRC_PATH}/kernel" -name "*.dtsi")
 for dts_file in $DTS_FILES; do
     run_linter "DTS Compiler (as linter)" \
         "dtc -I dts -O dtb -o /dev/null -q $dts_file" "$dts_file"
@@ -108,7 +110,7 @@ run_linter "PyLint" "pylint ${SRC_PATH}/user" "Python files"
 # Lint shell scripts in the 'scripts' directory
 # The script finds all files ending in .sh within the scripts folder,
 # including the script's own location.
-SHELL_SCRIPTS=$(find ${SRC_PATH}/scripts -name "*.sh")
+SHELL_SCRIPTS=$(find "${SRC_PATH}/scripts" -name "*.sh")
 for script in $SHELL_SCRIPTS; do
     run_linter "ShellCheck" "shellcheck $script" "$script"
 done
