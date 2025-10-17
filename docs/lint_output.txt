@@ -1,0 +1,50 @@
+[34m[INFO][0m Checking for required linting tools...
+[34m[INFO][0m All dependencies are present.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running C++ Linter on C files...
+[34m[INFO][0m -----------------------------------------------------------------
+Done processing /home/evaca/nxp_simtemp/kernel/include/nxp_simtemp.h
+Done processing /home/evaca/nxp_simtemp/kernel/include/nxp_simtemp_ioctl.h
+Done processing /home/evaca/nxp_simtemp/kernel/include/nxp_simtemp_test.h
+Done processing /home/evaca/nxp_simtemp/kernel/nxp_simtemp.c
+Done processing /home/evaca/nxp_simtemp/kernel/nxp_simtemp_test.c
+[32m[OK][0m C++ Linter check passed for C files.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running DTS Compiler (as linter) on /home/evaca/nxp_simtemp/kernel/dts/nxp-simtemp.dtsi...
+[34m[INFO][0m -----------------------------------------------------------------
+[32m[OK][0m DTS Compiler (as linter) check passed for /home/evaca/nxp_simtemp/kernel/dts/nxp-simtemp.dtsi.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running PyLint on Python files...
+[34m[INFO][0m -----------------------------------------------------------------
+
+--------------------------------------------------------------------
+Your code has been rated at 10.00/10 (previous run: 10.00/10, +0.00)
+
+[32m[OK][0m PyLint check passed for Python files.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running ShellCheck on /home/evaca/nxp_simtemp/scripts/lint.sh...
+[34m[INFO][0m -----------------------------------------------------------------
+[32m[OK][0m ShellCheck check passed for /home/evaca/nxp_simtemp/scripts/lint.sh.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running ShellCheck on /home/evaca/nxp_simtemp/scripts/setup.sh...
+[34m[INFO][0m -----------------------------------------------------------------
+[32m[OK][0m ShellCheck check passed for /home/evaca/nxp_simtemp/scripts/setup.sh.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running ShellCheck on /home/evaca/nxp_simtemp/scripts/run_demo.sh...
+[34m[INFO][0m -----------------------------------------------------------------
+[32m[OK][0m ShellCheck check passed for /home/evaca/nxp_simtemp/scripts/run_demo.sh.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m Running ShellCheck on /home/evaca/nxp_simtemp/scripts/build.sh...
+[34m[INFO][0m -----------------------------------------------------------------
+[32m[OK][0m ShellCheck check passed for /home/evaca/nxp_simtemp/scripts/build.sh.
+
+[34m[INFO][0m =================================================================
+[34m[INFO][0m All linting tasks completed successfully!
+[34m[INFO][0m =================================================================
