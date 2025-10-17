@@ -38,6 +38,12 @@
  * @note **Version History:**
  *
  * -----------------------------------------------------------------------------
+ * ## - 2025-10-17 - 1.0.1
+ * ### Fix
+ * - Fix logging for kfifo full
+ * - Change new samples log to debug to avoid filling the kernl log to fast
+ *
+ * -----------------------------------------------------------------------------
  * ## - 2025-10-16 - 1.0.0
  * ### Enh
  * - First version in MAIN
@@ -74,7 +80,7 @@
  *
  * -----------------------------------------------------------------------------
  */
-#define DRIVER_VERSION "1.0.0"
+#define DRIVER_VERSION "1.0.1"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
@@ -448,7 +454,7 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     if (kfifo_is_full(&sdev->kfifo)) {
         ret = kfifo_get(&sdev->kfifo, &drop_sample);
         dev_warn(sdev->dev, "kfifo is full, dropping latest sample: %u mC at"
-            " %llu ns, flags=0x%02x\n, ret=%d", drop_sample.temp_mC,
+            " %llu ns, flags=0x%02x, ret=%d", drop_sample.temp_mC,
             drop_sample.timestamp_ns, drop_sample.flags, ret);
     }
 
@@ -459,7 +465,7 @@ static enum hrtimer_restart simtemp_hrtimer_callback(struct hrtimer *timer) {
     /* Wake up pollers for new data */
     wake_up_interruptible_poll(&sdev->poll_wait, (mask | POLLIN));
 
-    dev_info(sdev->dev, "New sample recorded: %u mC at %llu ns, flags=0x%02x\n",
+    dev_dbg(sdev->dev, "New sample recorded: %u mC at %llu ns, flags=0x%02x\n",
             sample.temp_mC, sample.timestamp_ns, sample.flags);
 
     spin_unlock_irqrestore(&sdev->lock, flags);

@@ -114,7 +114,9 @@ This project demonstrates a simulated temperature sensor device driver for embed
     # If the running host is aarch64 set CROSS_COMPILE=/usr/bin/aarch64-linux-gnu-
     # Otherwie, point it to the just installed Linaro binaries
     export CROSS_COMPILE=/usr/src/linaro-5/bin/aarch64-linux-gnu-
-
+    # Raspberry Pi kernel headers
+    export KERNEL_HEADERS=/usr/src/linux-5.4.42-v8+
+    
     # Triger build process
     ./scripts/build.sh
     ```
