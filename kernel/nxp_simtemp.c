@@ -38,6 +38,11 @@
  * @note **Version History:**
  *
  * -----------------------------------------------------------------------------
+ * ## - 2025-10-19 - 1.0.2
+ * ### Fix
+ * - Fix static build errors by removing un-used constant variables
+ *
+ * -----------------------------------------------------------------------------
  * ## - 2025-10-17 - 1.0.1
  * ### Fix
  * - Fix logging for kfifo full
@@ -80,7 +85,7 @@
  *
  * -----------------------------------------------------------------------------
  */
-#define DRIVER_VERSION "1.0.1"
+#define DRIVER_VERSION "1.0.2"
 
 /* Device state holder */
 static struct simtemp_dev *simtemp_data;
@@ -621,13 +626,9 @@ static struct platform_device *simtemp_device_simple;
 /*
  * Define integer values as device properties as is common device tree bindings.
  */
-static const u32 prop_sampling_ms = DEFAULT_SAMPLE_MS;
-static const u32 prop_threshold_mC = DEFAULT_THRESHOLD_MC;
-
-/* Device properties */
 static struct property_entry simtemp_properties[] = {
-    PROPERTY_ENTRY_U32("sampling-ms", prop_sampling_ms),
-    PROPERTY_ENTRY_U32("threshold-mC", prop_threshold_mC),
+    PROPERTY_ENTRY_U32("sampling-ms", DEFAULT_SAMPLE_MS),
+    PROPERTY_ENTRY_U32("threshold-mC", DEFAULT_THRESHOLD_MC),
     { /* sentinel */ },
 };
 
