@@ -13,6 +13,10 @@ MODULE_FILE="${SRC_PATH}/kernel/nxp_simtemp.ko"
 TEST_TOOL="${BUILD_PATH}/nxp_simtemp_test"
 MODULE_NAME="nxp_simtemp"
 SYSFS_DIR="/sys/devices/platform/simtemp"
+SYSFS_PATHS_TO_REMOVE=(\
+    "${SYSFS_DIR}/sampling_ms"\
+    "${SYSFS_DIR}/threshold_mC"\
+)
 
 # Define a function for colored output
 function print_status {
@@ -143,10 +147,13 @@ fi
 
 # --- Validate sysfs paths are gone ---
 print_status "info" "Validating sysfs paths were removed..."
-if [ ! -d "${SYSFS_DIR}" ]; then
-    print_status "ok" "Sysfs directory ${SYSFS_DIR} was removed."
-else
-    print_status "error" "Sysfs directory ${SYSFS_DIR} still exists."
-fi
+for SYSFS_PATH in "${SYSFS_PATHS_TO_REMOVE[@]}"; do
+    if [ ! -d "${SYSFS_PATH}" ]; then
+        print_status "ok" "Sysfs directory ${SYSFS_PATH} was removed."
+    else
+        print_status "error" \
+            "Sysfs directory ${SYSFS_PATH} still exists."
+    fi
+done
 
 print_status "info" "--- All tests passed successfully ---"
